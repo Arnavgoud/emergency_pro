@@ -213,10 +213,19 @@ def emergency_count():
     total = conn.execute("SELECT COUNT(*) FROM emergencies").fetchone()[0]
     conn.close()
     return {"count": total}
+@app.route('/police/login')
+def police_login():
+    return render_template('authority/login.html')
 
+@app.route('/police/dashboard')
+def police_dashboard():
+    return render_template('authority/dashboard.html')
 
 import os
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+    
+    #https://emergencypro-production.up.railway.app/authority/dashboard
+    #https://emergencypro-production.up.railway.app/
