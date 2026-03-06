@@ -1,62 +1,35 @@
-from flask import Flask, render_template, request, redirect, url_for, session
+from flask import Flask, render_template, request, redirect, url_for, jsonify
 import sqlite3
-from datetime import datetime, timedelta
+import os
 
 app = Flask(__name__)
-app.secret_key = "supersecretkey"
-app.permanent_session_lifetime = timedelta(minutes=30)
 
-DATABASE = "database.db"
+DATABASE = "emergency.db"
 
 
-# ---------------- DB CONNECTION ----------------
+# -----------------------
+# DATABASE CONNECTION
+# -----------------------
+
 def get_db():
     conn = sqlite3.connect(DATABASE)
     conn.row_factory = sqlite3.Row
     return conn
 
 
-# ---------------- INIT DATABASE ----------------
 def init_db():
     conn = get_db()
 
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS emergencies (
+        CREATE TABLE IF NOT EXISTS emergencies(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             type TEXT,
             latitude REAL,
             longitude REAL,
             status TEXT DEFAULT 'Pending',
-            assigned_to TEXT DEFAULT 'Not Assigned',
-            created_at TEXT,
-            updated_at TEXT
+            time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
-
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE,
-            password TEXT,
-            role TEXT
-        )
-    """)
-
-    users = [
-        ("admin", "admin123", "admin"),
-        ("police", "police123", "police"),
-        ("medical", "medical123", "medical"),
-        ("fire", "fire123", "fire"),
-    ]
-
-    for user in users:
-        try:
-            conn.execute(
-                "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
-                user
-            )
-        except:
-            pass
 
     conn.commit()
     conn.close()
@@ -65,140 +38,156 @@ def init_db():
 init_db()
 
 
-# ---------------- CITIZEN ----------------
-@app.route("/", methods=["GET", "POST"])
+# -----------------------
+# HOME (CITIZEN SOS PAGE)
+# -----------------------
+
+@app.route("/")
 def home():
-    if request.method == "POST":
-        emergency_type = request.form["type"]
-        latitude = request.form["latitude"]
-        longitude = request.form["longitude"]
-
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        conn = get_db()
-        conn.execute(
-            """INSERT INTO emergencies 
-               (type, latitude, longitude, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?)""",
-            (emergency_type, latitude, longitude, now, now)
-        )
-        conn.commit()
-        conn.close()
-
-        return redirect(url_for("home"))
-
     return render_template("citizen/home.html")
 
 
-# ---------------- LOGIN ----------------
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        username = request.form["username"]
-        password = request.form["password"]
+# -----------------------
+# SOS API
+# -----------------------
 
-        conn = get_db()
-        user = conn.execute(
-            "SELECT * FROM users WHERE username=? AND password=?",
-            (username, password)
-        ).fetchone()
-        conn.close()
+@app.route("/sos", methods=["POST"])
+def sos():
 
-        if user:
-            session.permanent = True
-            session["user"] = user["username"]
-            session["role"] = user["role"]
-            return redirect(url_for("authority_dashboard"))
-        else:
-            return "Invalid credentials"
+    data = request.json
 
-    return render_template("login.html")
-
-
-# ---------------- LOGOUT ----------------
-@app.route("/logout")
-def logout():
-    session.clear()
-    return redirect(url_for("login"))
-
-
-# ---------------- DASHBOARD ----------------
-@app.route("/authority/dashboard")
-def authority_dashboard():
-    if "user" not in session:
-        return redirect(url_for("login"))
+    emergency_type = data["type"]
+    lat = data["latitude"]
+    lon = data["longitude"]
 
     conn = get_db()
-    role = session["role"]
 
-    if role == "admin":
-        emergencies = conn.execute(
-            "SELECT * FROM emergencies ORDER BY id DESC"
-        ).fetchall()
-    else:
-        department_mapping = {
-            "police": "Police Department",
-            "medical": "Medical Team",
-            "fire": "Fire Department"
-        }
+    conn.execute(
+        "INSERT INTO emergencies(type, latitude, longitude) VALUES (?, ?, ?)",
+        (emergency_type, lat, lon)
+    )
 
-        dept = department_mapping.get(role)
+    conn.commit()
+    conn.close()
 
-        emergencies = conn.execute(
-            "SELECT * FROM emergencies WHERE assigned_to=? ORDER BY id DESC",
-            (dept,)
-        ).fetchall()
+    return jsonify({"status": "success"})
 
-    total = len(emergencies)
-    active = len([e for e in emergencies if e["status"] != "Resolved"])
-    resolved = len([e for e in emergencies if e["status"] == "Resolved"])
+
+# -----------------------
+# AUTHORITY LOGIN
+# -----------------------
+
+@app.route("/authority/login")
+def authority_login():
+    return render_template("authority/login.html")
+
+
+# -----------------------
+# AUTHORITY DASHBOARD
+# -----------------------
+
+@app.route("/authority/dashboard")
+def authority_dashboard():
+
+    conn = get_db()
+
+    emergencies = conn.execute(
+        "SELECT * FROM emergencies ORDER BY time DESC"
+    ).fetchall()
 
     conn.close()
 
     return render_template(
         "authority/dashboard.html",
-        emergencies=emergencies,
-        total=total,
-        active=active,
-        resolved=resolved,
-        role=role
+        emergencies=emergencies
     )
 
 
-# ---------------- UPDATE STATUS ----------------
-@app.route("/update_status/<int:id>/<string:new_status>")
-def update_status(id, new_status):
+# -----------------------
+# POLICE LOGIN
+# -----------------------
 
-    if "user" not in session:
-        return redirect(url_for("login"))
+@app.route("/police/login")
+def police_login():
+    return render_template("authority/login.html")
 
-    role = session["role"]
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+# -----------------------
+# POLICE DASHBOARD
+# -----------------------
+
+@app.route("/police/dashboard")
+def police_dashboard():
 
     conn = get_db()
 
-    if role == "admin" and new_status.startswith("Assign"):
-        department_mapping = {
-            "AssignPolice": "Police Department",
-            "AssignMedical": "Medical Team",
-            "AssignFire": "Fire Department"
-        }
+    emergencies = conn.execute(
+        "SELECT * FROM emergencies WHERE type='crime'"
+    ).fetchall()
 
-        assigned_department = department_mapping.get(new_status)
+    conn.close()
 
-        conn.execute(
-            """UPDATE emergencies 
-               SET assigned_to=?, status='Dispatched', updated_at=? 
-               WHERE id=?""",
-            (assigned_department, now, id)
-        )
-    else:
-        conn.execute(
-            """UPDATE emergencies 
-               SET status=?, updated_at=? 
-               WHERE id=?""",
-            (new_status, now, id)
-        )
+    return render_template(
+        "authority/dashboard.html",
+        emergencies=emergencies
+    )
+
+
+# -----------------------
+# MEDICAL DASHBOARD
+# -----------------------
+
+@app.route("/medical/dashboard")
+def medical_dashboard():
+
+    conn = get_db()
+
+    emergencies = conn.execute(
+        "SELECT * FROM emergencies WHERE type='medical'"
+    ).fetchall()
+
+    conn.close()
+
+    return render_template(
+        "authority/dashboard.html",
+        emergencies=emergencies
+    )
+
+
+# -----------------------
+# FIRE DASHBOARD
+# -----------------------
+
+@app.route("/fire/dashboard")
+def fire_dashboard():
+
+    conn = get_db()
+
+    emergencies = conn.execute(
+        "SELECT * FROM emergencies WHERE type='fire'"
+    ).fetchall()
+
+    conn.close()
+
+    return render_template(
+        "authority/dashboard.html",
+        emergencies=emergencies
+    )
+
+
+# -----------------------
+# STATUS UPDATE
+# -----------------------
+
+@app.route("/update_status/<int:id>/<status>")
+def update_status(id, status):
+
+    conn = get_db()
+
+    conn.execute(
+        "UPDATE emergencies SET status=? WHERE id=?",
+        (status, id)
+    )
 
     conn.commit()
     conn.close()
@@ -206,26 +195,12 @@ def update_status(id, new_status):
     return redirect(url_for("authority_dashboard"))
 
 
-# ---------------- ALERT API ----------------
-@app.route("/api/emergency_count")
-def emergency_count():
-    conn = get_db()
-    total = conn.execute("SELECT COUNT(*) FROM emergencies").fetchone()[0]
-    conn.close()
-    return {"count": total}
-@app.route('/police/login')
-def police_login():
-    return render_template('authority/login.html')
-
-@app.route('/police/dashboard')
-def police_dashboard():
-    return render_template('authority/dashboard.html')
-
-import os
+# -----------------------
+# RUN SERVER
+# -----------------------
 
 if __name__ == "__main__":
+
     port = int(os.environ.get("PORT", 10000))
+
     app.run(host="0.0.0.0", port=port)
-    
-    #https://emergencypro-production.up.railway.app/authority/dashboard
-    #https://emergencypro-production.up.railway.app/
