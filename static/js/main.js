@@ -1,51 +1,113 @@
-document.addEventListener("DOMContentLoaded", () => {
+from flask import Flask, render_template, request, jsonify
+import sqlite3
+import os
 
-const sosBtn = document.getElementById("sos-btn");
+app = Flask(__name__)
 
-sosBtn.addEventListener("click", () => {
+DATABASE = "emergency.db"
 
-if (!navigator.geolocation) {
-alert("Location not supported");
-return;
-}
 
-navigator.geolocation.getCurrentPosition(async (position) => {
+# -----------------------------
+# DATABASE CONNECTION
+# -----------------------------
 
-const lat = position.coords.latitude;
-const lon = position.coords.longitude;
-const type = document.getElementById("emergency-type").value;
+def get_db():
+    conn = sqlite3.connect(DATABASE)
+    conn.row_factory = sqlite3.Row
+    return conn
 
-try {
 
-const res = await fetch("/sos", {
-method: "POST",
-headers: {
-"Content-Type": "application/json"
-},
-body: JSON.stringify({
-type: type,
-latitude: lat,
-longitude: lon
-})
-});
+def init_db():
+    conn = sqlite3.connect(DATABASE)
 
-if (!res.ok) {
-throw new Error("Server error");
-}
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS emergencies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT,
+        latitude REAL,
+        longitude REAL,
+        status TEXT DEFAULT 'Pending'
+    )
+    """)
 
-const data = await res.json();
+    conn.commit()
+    conn.close()
 
-alert("🚨 SOS Sent Successfully");
 
-} catch (err) {
+# create table when server starts
+init_db()
 
-console.error(err);
-alert("❌ Failed to send SOS");
 
-}
+# -----------------------------
+# HOME PAGE
+# -----------------------------
 
-});
+@app.route("/")
+def home():
+    return render_template("citizen/home.html")
 
-});
 
-});
+# -----------------------------
+# SOS API
+# -----------------------------
+
+@app.route("/sos", methods=["POST"])
+def sos():
+
+    data = request.get_json()
+
+    emergency_type = data.get("type")
+    latitude = data.get("latitude")
+    longitude = data.get("longitude")
+
+    try:
+
+        conn = get_db()
+
+        conn.execute(
+            "INSERT INTO emergencies(type, latitude, longitude) VALUES (?, ?, ?)",
+            (emergency_type, latitude, longitude)
+        )
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({"success": True})
+
+    except Exception as e:
+
+        print("ERROR:", e)
+
+        return jsonify({"success": False})
+
+
+# -----------------------------
+# AUTHORITY DASHBOARD
+# -----------------------------
+
+@app.route("/authority/dashboard")
+def authority_dashboard():
+
+    conn = get_db()
+
+    emergencies = conn.execute(
+        "SELECT * FROM emergencies ORDER BY id DESC"
+    ).fetchall()
+
+    conn.close()
+
+    return render_template(
+        "authority/dashboard.html",
+        emergencies=emergencies
+    )
+
+
+# -----------------------------
+# RUN SERVER
+# -----------------------------
+
+if __name__ == "__main__":
+
+    port = int(os.environ.get("PORT", 10000))
+
+    app.run(host="0.0.0.0", port=port)
