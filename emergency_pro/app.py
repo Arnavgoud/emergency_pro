@@ -1,10 +1,17 @@
 from functools import wraps
 import os
 
-import psycopg2
-from psycopg2.extras import RealDictCursor
 from flask import Flask, jsonify, redirect, render_template, request, session
 from werkzeug.security import check_password_hash, generate_password_hash
+
+DB_DRIVER = "psycopg2"
+try:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+except ModuleNotFoundError:
+    DB_DRIVER = "psycopg"
+    import psycopg
+    from psycopg.rows import dict_row
 
 
 app = Flask(__name__)
@@ -20,13 +27,25 @@ TYPE_TO_ASSIGNMENT = {"crime": "Police", "medical": "Medical", "fire": "Fire"}
 
 
 def get_db_connection():
-    return psycopg2.connect(DATABASE_URL)
+    if DB_DRIVER == "psycopg2":
+        return psycopg2.connect(DATABASE_URL)
+    return psycopg.connect(DATABASE_URL)
+
+
+def get_cursor(conn, as_dict=False):
+    if DB_DRIVER == "psycopg2":
+        if as_dict:
+            return conn.cursor(cursor_factory=RealDictCursor)
+        return conn.cursor()
+    if as_dict:
+        return conn.cursor(row_factory=dict_row)
+    return conn.cursor()
 
 
 def init_db():
     conn = get_db_connection()
     try:
-        cur = conn.cursor()
+        cur = get_cursor(conn)
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -175,7 +194,7 @@ def authority_login():
     password = request.form.get("password") or ""
     conn = get_db_connection()
     try:
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur = get_cursor(conn, as_dict=True)
         cur.execute(
             "SELECT id, username, password_hash, role FROM users WHERE username=%s",
             (username,),
@@ -206,7 +225,7 @@ def authority_dashboard():
     role = session["role"]
     conn = get_db_connection()
     try:
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur = get_cursor(conn, as_dict=True)
         if role == "admin":
             cur.execute("SELECT * FROM emergencies ORDER BY id DESC")
         else:
@@ -240,7 +259,7 @@ def emergency_count():
     role = session["role"]
     conn = get_db_connection()
     try:
-        cur = conn.cursor()
+        cur = get_cursor(conn)
         if role == "admin":
             cur.execute("SELECT COUNT(*) FROM emergencies")
         else:
@@ -269,7 +288,7 @@ def update_status(emergency_id, action):
 
     conn = get_db_connection()
     try:
-        cur = conn.cursor()
+        cur = get_cursor(conn)
         if action in admin_actions and role == "admin":
             status, assigned_to = admin_actions[action]
             cur.execute(
@@ -307,4 +326,4 @@ init_db()
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=False)
