@@ -9,14 +9,15 @@ alert("Location not supported");
 return;
 }
 
-navigator.geolocation.getCurrentPosition((position) => {
+navigator.geolocation.getCurrentPosition(async (position) => {
 
 const lat = position.coords.latitude;
 const lon = position.coords.longitude;
-
 const type = document.getElementById("emergency-type").value;
 
-fetch("/sos", {
+try {
+
+const res = await fetch("/sos", {
 method: "POST",
 headers: {
 "Content-Type": "application/json"
@@ -26,18 +27,22 @@ type: type,
 latitude: lat,
 longitude: lon
 })
-})
-.then(res => res.json())
-.then(data => {
+});
+
+if (!res.ok) {
+throw new Error("Server error");
+}
+
+const data = await res.json();
 
 alert("🚨 SOS Sent Successfully");
 
-})
-.catch(err => {
+} catch (err) {
 
-alert("⚠ Failed to send SOS");
+console.error(err);
+alert("❌ Failed to send SOS");
 
-});
+}
 
 });
 
