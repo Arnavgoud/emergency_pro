@@ -4,19 +4,24 @@ import os
 
 app = Flask(__name__)
 
-DB = "emergency.db"
+DATABASE = "emergency.db"
 
+
+# -----------------------------
+# DATABASE CONNECTION
+# -----------------------------
 
 def get_db():
-    conn = sqlite3.connect(DB)
+    conn = sqlite3.connect(DATABASE)
     conn.row_factory = sqlite3.Row
     return conn
 
 
 def init_db():
-    conn = get_db()
+    conn = sqlite3.connect(DATABASE)
+
     conn.execute("""
-    CREATE TABLE IF NOT EXISTS emergencies(
+    CREATE TABLE IF NOT EXISTS emergencies (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         type TEXT,
         latitude REAL,
@@ -24,36 +29,61 @@ def init_db():
         status TEXT DEFAULT 'Pending'
     )
     """)
+
     conn.commit()
     conn.close()
 
 
+# create table when server starts
 init_db()
 
+
+# -----------------------------
+# HOME PAGE
+# -----------------------------
 
 @app.route("/")
 def home():
     return render_template("citizen/home.html")
 
 
+# -----------------------------
+# SOS API
+# -----------------------------
+
 @app.route("/sos", methods=["POST"])
 def sos():
+
     data = request.get_json()
 
     emergency_type = data.get("type")
     latitude = data.get("latitude")
     longitude = data.get("longitude")
 
-    conn = get_db()
-    conn.execute(
-        "INSERT INTO emergencies(type, latitude, longitude) VALUES (?, ?, ?)",
-        (emergency_type, latitude, longitude)
-    )
-    conn.commit()
-    conn.close()
+    try:
 
-    return jsonify({"message": "SOS received"})
+        conn = get_db()
 
+        conn.execute(
+            "INSERT INTO emergencies(type, latitude, longitude) VALUES (?, ?, ?)",
+            (emergency_type, latitude, longitude)
+        )
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({"success": True})
+
+    except Exception as e:
+
+        print("ERROR:", e)
+
+        return jsonify({"success": False})
+
+
+# -----------------------------
+# AUTHORITY DASHBOARD
+# -----------------------------
 
 @app.route("/authority/dashboard")
 def authority_dashboard():
@@ -72,6 +102,12 @@ def authority_dashboard():
     )
 
 
+# -----------------------------
+# RUN SERVER
+# -----------------------------
+
 if __name__ == "__main__":
+
     port = int(os.environ.get("PORT", 10000))
+
     app.run(host="0.0.0.0", port=port)
