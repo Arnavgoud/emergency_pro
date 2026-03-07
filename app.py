@@ -51,7 +51,7 @@ def home():
 # SOS API
 # -----------------------
 
-@app.route("/sos", methods=["POST"])
+@app.route("/sos", methods=["POST","GET"])
 def sos():
 
     data = request.json
