@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="container-fluid min-vh-100 d-flex align-items-center justify-content-center bg-light">
+
+    <div class="row w-100 justify-content-center">
+        
+        <div class="col-12 col-md-6 col-lg-4">
+
+            <div class="card shadow-lg border-0 p-4">
+
+                <h4 class="text-center mb-3 text-primary fw-bold">
+                    Volunteer Login
+                </h4>
+
+                <form>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Email</label>
+                        <input type="email" class="form-control" placeholder="Enter your email">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Password</label>
+                        <input type="password" class="form-control" placeholder="Enter password">
+                    </div>
+
+                    <button type="submit" class="btn btn-primary w-100 mt-2">
+                        Login
+                    </button>
+
+                </form>
+
+                <hr>
+
+                <div class="text-center">
+                    <small class="text-muted">
+                        New volunteer? Contact admin for registration.
+                    </small>
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+
+{% endblock %}

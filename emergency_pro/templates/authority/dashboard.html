@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+{% block content %}
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+
+<div class="container-fluid" style="background:#f5f7fa; min-height:100vh;">
+
+    <input type="hidden" id="emergencyCount" value="{{ total }}">
+
+    <!-- Alert Banner -->
+    <div id="alertBanner"
+         style="display:none; background:#dc2626; color:white; padding:15px;
+                text-align:center; font-weight:bold;
+                animation: flash 1s infinite;">
+        🚨 NEW EMERGENCY ALERT 🚨
+    </div>
+
+    <style>
+        @keyframes flash {
+            0% { opacity: 1; }
+            50% { opacity: 0.4; }
+            100% { opacity: 1; }
+        }
+    </style>
+
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center py-3 px-4 bg-dark text-white">
+        <h4 class="m-0">Emergency Control Center</h4>
+        <div>
+            <span class="me-3">Logged in as: {{ role|capitalize }}</span>
+            <a href="/logout" class="btn btn-sm btn-danger">Logout</a>
+        </div>
+    </div>
+
+    <div class="p-4">
+
+        <h3 class="mb-4">Dashboard</h3>
+
+        <!-- Stats -->
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <div class="card shadow-sm border-0 p-3">
+                    <h6 class="text-muted">Total Cases</h6>
+                    <h3 class="fw-bold text-danger">{{ total }}</h3>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card shadow-sm border-0 p-3">
+                    <h6 class="text-muted">Active Cases</h6>
+                    <h3 class="fw-bold text-warning">{{ active }}</h3>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card shadow-sm border-0 p-3">
+                    <h6 class="text-muted">Resolved Cases</h6>
+                    <h3 class="fw-bold text-success">{{ resolved }}</h3>
+                </div>
+            </div>
+        </div>
+
+        <!-- Map -->
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-body">
+                <h5 class="mb-3">Live Emergency Map</h5>
+                <div id="map" style="height:400px;"></div>
+            </div>
+        </div>
+
+        <!-- Table -->
+        <div class="card shadow-sm border-0">
+            <div class="card-body">
+                <h5 class="mb-3">Emergency List</h5>
+
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>ID</th>
+                                <th>Type</th>
+                                <th>Coordinates</th>
+                                <th>Assigned To</th>
+                                <th>Created</th>
+                                <th>Updated</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+
+                        {% for e in emergencies %}
+                        <tr>
+                            <td>{{ e.id }}</td>
+                            <td>{{ e.type }}</td>
+                            <td>{{ e.latitude }}, {{ e.longitude }}</td>
+
+                            <td>
+                                {% if e.assigned_to == "Not Assigned" %}
+                                    <span class="text-muted">Not Assigned</span>
+                                {% else %}
+                                    <span class="fw-bold">{{ e.assigned_to }}</span>
+                                {% endif %}
+                            </td>
+
+                            <td>{{ e.created_at }}</td>
+                            <td>{{ e.updated_at }}</td>
+
+                            <td>
+
+                                {% if role == "admin" and e.assigned_to == "Not Assigned" %}
+
+                                    <a href="/update_status/{{ e.id }}/AssignPolice"
+                                       class="btn btn-sm btn-primary">
+                                       Assign Police
+                                    </a>
+
+                                    <a href="/update_status/{{ e.id }}/AssignMedical"
+                                       class="btn btn-sm btn-success">
+                                       Assign Medical
+                                    </a>
+
+                                    <a href="/update_status/{{ e.id }}/AssignFire"
+                                       class="btn btn-sm btn-danger">
+                                       Assign Fire
+                                    </a>
+
+                                {% else %}
+
+                                    {% if e.status == "Dispatched" %}
+                                        <span class="badge bg-warning text-dark">Dispatched</span>
+                                        <a href="/update_status/{{ e.id }}/Acknowledged"
+                                           class="btn btn-sm btn-info ms-2">
+                                           Acknowledge
+                                        </a>
+
+                                    {% elif e.status == "Acknowledged" %}
+                                        <span class="badge bg-primary">Acknowledged</span>
+                                        <a href="/update_status/{{ e.id }}/Resolved"
+                                           class="btn btn-sm btn-dark ms-2">
+                                           Resolve
+                                        </a>
+
+                                    {% else %}
+                                        <span class="badge bg-success">Resolved</span>
+                                    {% endif %}
+
+                                {% endif %}
+
+                            </td>
+                        </tr>
+                        {% endfor %}
+
+                        </tbody>
+                    </table>
+                </div>
+
+            </div>
+        </div>
+
+    </div>
+
+</div>
+
+<!-- Leaflet -->
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<script>
+    var map = L.map('map').setView([0, 0], 2);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    {% for e in emergencies %}
+
+        var iconColor;
+
+        {% if e.status == "Dispatched" %}
+            iconColor = "orange";
+        {% elif e.status == "Acknowledged" %}
+            iconColor = "blue";
+        {% elif e.status == "Resolved" %}
+            iconColor = "green";
+        {% else %}
+            iconColor = "red";
+        {% endif %}
+
+        var customIcon = L.icon({
+            iconUrl: "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-" + iconColor + ".png",
+            shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png",
+            iconSize: [25, 41],
+            iconAnchor: [12, 41],
+            popupAnchor: [1, -34]
+        });
+
+        L.marker([{{ e.latitude }}, {{ e.longitude }}], {icon: customIcon})
+         .addTo(map)
+         .bindPopup(
+            "<b>{{ e.type }}</b><br>" +
+            "Status: {{ e.status }}<br>" +
+            "Assigned: {{ e.assigned_to }}<br>" +
+            "Created: {{ e.created_at }}<br>" +
+            "Updated: {{ e.updated_at }}"
+         );
+
+    {% endfor %}
+</script>
+
+<!-- Alert Check -->
+<script>
+let previousCount = {{ total }};
+
+function checkForNewEmergencies() {
+    fetch("/api/emergency_count")
+        .then(response => response.json())
+        .then(data => {
+            if (data.count > previousCount) {
+                document.getElementById("alertBanner").style.display = "block";
+                previousCount = data.count;
+                setTimeout(() => {
+                    location.reload();
+                }, 5000);
+            }
+        });
+}
+
+setInterval(checkForNewEmergencies, 10000);
+</script>
+
+{% endblock %}

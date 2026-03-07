@@ -1,0 +1,14 @@
+body {
+    background: #f4f6f9;
+}
+
+.sos-btn {
+    width: 180px;
+    height: 180px;
+    font-size: 32px;
+    transition: transform 0.2s ease;
+}
+
+.sos-btn:hover {
+    transform: scale(1.05);
+}
