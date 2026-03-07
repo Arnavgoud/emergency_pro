@@ -1,57 +1,48 @@
-{% extends "base.html" %}
-{% block content %}
+<!DOCTYPE html>
+<html>
+<head>
 
-<div class="container-fluid min-vh-100 d-flex align-items-center justify-content-center bg-light">
+<title>Emergency SOS</title>
 
-    <div class="row w-100 justify-content-center">
-        <div class="col-12 col-md-8 col-lg-5">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 
-            <div class="card shadow-lg border-0 p-4 text-center">
+</head>
 
-                <h3 class="text-danger fw-bold mb-2">Emergency SOS</h3>
-                <p class="text-muted mb-4">Press immediately in case of emergency</p>
+<body class="bg-light">
 
-                <form method="POST">
+<div class="container text-center mt-5">
 
-                    <!-- Hidden GPS Fields -->
-                    <input type="hidden" name="latitude" id="latitude">
-                    <input type="hidden" name="longitude" id="longitude">
+<h1 class="text-danger mb-3">Emergency SOS</h1>
 
-                    <!-- SOS Button -->
-                   <button id="sos-btn" type="button" class="btn btn-danger rounded-circle shadow"
-                        style="width:150px; height:150px; font-size:28px;">
-                        SOS
-                    </button>
+<p class="text-muted">Press immediately in case of emergency</p>
 
-                    <!-- Emergency Type -->
-                    <select name="type" class="form-select" required>
-                        <option value="">Select Emergency Type</option>
-                        <option value="Medical">Medical</option>
-                        <option value="Crime">Crime</option>
-                        <option value="Fire">Fire</option>
-                        <option value="Accident">Accident</option>
-                    </select>
 
-                </form>
+<select id="emergency-type" class="form-select w-50 mx-auto mb-4">
 
-            </div>
-        </div>
-    </div>
+<option value="crime">Crime</option>
+<option value="medical">Medical</option>
+<option value="fire">Fire</option>
+
+</select>
+
+
+<div class="d-flex justify-content-center mb-4">
+
+<button id="sos-btn"
+type="button"
+class="btn btn-danger rounded-circle shadow"
+style="width:150px; height:150px; font-size:28px;">
+
+SOS
+
+</button>
+
 </div>
 
-<script>
-function getLocation() {
-    if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(function(position) {
-            document.getElementById("latitude").value = position.coords.latitude;
-            document.getElementById("longitude").value = position.coords.longitude;
-        });
-    } else {
-        alert("Geolocation is not supported by this browser.");
-    }
-}
+</div>
 
-window.onload = getLocation;
-</script>
+
 <script src="/static/js/main.js"></script>
-{% endblock %}
+
+</body>
+</html>
