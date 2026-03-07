@@ -1,57 +1,43 @@
-document.addEventListener("DOMContentLoaded", function () {
+function sendSOS() {
+    const type = document.querySelector("select").value;
 
-const sosButton = document.getElementById("sos-btn");
+    if (!navigator.geolocation) {
+        alert("Location not supported");
+        return;
+    }
 
-sosButton.addEventListener("click", function () {
+    navigator.geolocation.getCurrentPosition(function (position) {
+        const lat = position.coords.latitude;
+        const lon = position.coords.longitude;
 
-if (!navigator.geolocation) {
-alert("Location not supported");
-return;
+        fetch("/send_sos", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                type: type,
+                lat: lat,
+                lon: lon
+            })
+        })
+            .then((response) => response.json())
+            .then((data) => {
+                if (data.success) {
+                    const team = data.assigned_to ? ` and routed to ${data.assigned_to}` : "";
+                    alert(`SOS sent successfully${team}.`);
+                } else {
+                    alert(data.error || "Failed to send SOS");
+                }
+            })
+            .catch((err) => {
+                console.error(err);
+                alert("Server error");
+            });
+    }, function () {
+        alert("Unable to get your location. Please enable GPS and try again.");
+    }, {
+        enableHighAccuracy: true,
+        timeout: 10000
+    });
 }
-
-navigator.geolocation.getCurrentPosition(function(position){
-
-const latitude = position.coords.latitude;
-const longitude = position.coords.longitude;
-
-const type = document.getElementById("emergency-type").value;
-
-fetch("/sos",{
-
-method:"POST",
-
-headers:{
-"Content-Type":"application/json"
-},
-
-body:JSON.stringify({
-type:type,
-latitude:latitude,
-longitude:longitude
-})
-
-})
-.then(res=>res.json())
-.then(data=>{
-
-if(data.success){
-
-alert("🚨 SOS Sent Successfully. Help is on the way.");
-
-}else{
-
-alert("⚠ Failed to send SOS");
-
-}
-
-})
-
-.catch(err=>{
-alert("⚠ Server error");
-})
-
-});
-
-});
-
-});

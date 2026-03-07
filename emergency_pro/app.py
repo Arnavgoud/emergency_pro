@@ -1,34 +1,127 @@
-from flask import Flask, render_template, request, jsonify, redirect
-import psycopg2
+from functools import wraps
 import os
 
-app = Flask(__name__)
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from flask import Flask, jsonify, redirect, render_template, request, session
+from werkzeug.security import check_password_hash, generate_password_hash
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
+
+app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "change-this-in-production")
+
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/emergency"
+)
+
+VALID_SOS_TYPES = {"crime", "medical", "fire"}
+ROLE_TO_ASSIGNMENT = {"police": "Police", "medical": "Medical", "fire": "Fire"}
+TYPE_TO_ASSIGNMENT = {"crime": "Police", "medical": "Medical", "fire": "Fire"}
+
 
 def get_db_connection():
-    conn = psycopg2.connect(DATABASE_URL)
-    return conn
+    return psycopg2.connect(DATABASE_URL)
 
-# create table automatically
+
 def init_db():
     conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS emergencies (
-            id SERIAL PRIMARY KEY,
-            type VARCHAR(50),
-            latitude VARCHAR(50),
-            longitude VARCHAR(50),
-            status VARCHAR(50),
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                username VARCHAR(100) UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                role VARCHAR(20) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """
         )
-    """)
-    conn.commit()
-    cur.close()
-    conn.close()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS emergencies (
+                id SERIAL PRIMARY KEY,
+                type VARCHAR(50) NOT NULL,
+                latitude DOUBLE PRECISION NOT NULL,
+                longitude DOUBLE PRECISION NOT NULL,
+                status VARCHAR(50) NOT NULL DEFAULT 'Dispatched',
+                assigned_to VARCHAR(50) NOT NULL DEFAULT 'Not Assigned',
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+        )
+        cur.execute(
+            "ALTER TABLE emergencies ADD COLUMN IF NOT EXISTS assigned_to VARCHAR(50) NOT NULL DEFAULT 'Not Assigned';"
+        )
+        cur.execute(
+            "ALTER TABLE emergencies ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;"
+        )
+        cur.execute(
+            "ALTER TABLE emergencies ALTER COLUMN latitude TYPE DOUBLE PRECISION USING latitude::DOUBLE PRECISION;"
+        )
+        cur.execute(
+            "ALTER TABLE emergencies ALTER COLUMN longitude TYPE DOUBLE PRECISION USING longitude::DOUBLE PRECISION;"
+        )
+        cur.execute(
+            """
+            CREATE OR REPLACE FUNCTION update_emergency_timestamp()
+            RETURNS TRIGGER AS $$
+            BEGIN
+                NEW.updated_at = CURRENT_TIMESTAMP;
+                RETURN NEW;
+            END;
+            $$ LANGUAGE plpgsql;
+            """
+        )
+        cur.execute(
+            """
+            DROP TRIGGER IF EXISTS trg_update_emergency_timestamp ON emergencies;
+            CREATE TRIGGER trg_update_emergency_timestamp
+            BEFORE UPDATE ON emergencies
+            FOR EACH ROW
+            EXECUTE FUNCTION update_emergency_timestamp();
+            """
+        )
+        _seed_user(cur, "admin", "admin123", "admin")
+        _seed_user(cur, "police1", "police123", "police")
+        _seed_user(cur, "medic1", "medical123", "medical")
+        _seed_user(cur, "fire1", "fire123", "fire")
+        conn.commit()
+    finally:
+        conn.close()
 
-init_db()
+
+def _seed_user(cur, username, raw_password, role):
+    cur.execute("SELECT id FROM users WHERE username=%s", (username,))
+    if cur.fetchone():
+        return
+    cur.execute(
+        "INSERT INTO users (username, password_hash, role) VALUES (%s, %s, %s)",
+        (username, generate_password_hash(raw_password), role),
+    )
+
+
+def login_required(view_fn):
+    @wraps(view_fn)
+    def wrapped(*args, **kwargs):
+        if "user_id" not in session:
+            return redirect("/authority/login")
+        return view_fn(*args, **kwargs)
+
+    return wrapped
+
+
+def authority_only(view_fn):
+    @wraps(view_fn)
+    def wrapped(*args, **kwargs):
+        role = session.get("role")
+        if role not in {"admin", "police", "medical", "fire"}:
+            return redirect("/authority/login")
+        return view_fn(*args, **kwargs)
+
+    return wrapped
 
 
 @app.route("/")
@@ -38,76 +131,180 @@ def home():
 
 @app.route("/send_sos", methods=["POST"])
 def send_sos():
-
-    data = request.json
-    emergency_type = data.get("type")
+    data = request.get_json(silent=True) or {}
+    emergency_type = (data.get("type") or "").strip().lower()
     lat = data.get("lat")
     lon = data.get("lon")
+
+    if emergency_type not in VALID_SOS_TYPES:
+        return jsonify({"success": False, "error": "Invalid emergency type"}), 400
+
+    try:
+        lat = float(lat)
+        lon = float(lon)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "Invalid coordinates"}), 400
+
+    assigned_to = TYPE_TO_ASSIGNMENT[emergency_type]
 
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-
         cur.execute(
-            "INSERT INTO emergencies (type, latitude, longitude, status) VALUES (%s,%s,%s,%s)",
-            (emergency_type, lat, lon, "Pending")
+            """
+            INSERT INTO emergencies (type, latitude, longitude, status, assigned_to)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (emergency_type, lat, lon, "Dispatched", assigned_to),
         )
-
         conn.commit()
-        cur.close()
+        return jsonify({"success": True, "assigned_to": assigned_to})
+    except Exception:
+        return jsonify({"success": False, "error": "Database error"}), 500
+    finally:
+        if "conn" in locals():
+            conn.close()
+
+
+@app.route("/authority/login", methods=["GET", "POST"])
+def authority_login():
+    if request.method == "GET":
+        return render_template("login.html")
+
+    username = (request.form.get("username") or "").strip()
+    password = request.form.get("password") or ""
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            "SELECT id, username, password_hash, role FROM users WHERE username=%s",
+            (username,),
+        )
+        user = cur.fetchone()
+    finally:
         conn.close()
 
-        return jsonify({"success": True})
+    if user and check_password_hash(user["password_hash"], password):
+        session["user_id"] = user["id"]
+        session["username"] = user["username"]
+        session["role"] = user["role"]
+        return redirect("/authority/dashboard")
 
-    except Exception as e:
-        print(e)
-        return jsonify({"success": False})
+    return render_template("login.html", error="Invalid credentials"), 401
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect("/authority/login")
 
 
 @app.route("/authority/dashboard")
+@login_required
+@authority_only
 def authority_dashboard():
+    role = session["role"]
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        if role == "admin":
+            cur.execute("SELECT * FROM emergencies ORDER BY id DESC")
+        else:
+            assigned_to = ROLE_TO_ASSIGNMENT[role]
+            cur.execute(
+                "SELECT * FROM emergencies WHERE assigned_to=%s ORDER BY id DESC",
+                (assigned_to,),
+            )
+        emergencies = cur.fetchall()
+    finally:
+        conn.close()
+
+    total = len(emergencies)
+    active = sum(1 for e in emergencies if e["status"] != "Resolved")
+    resolved = sum(1 for e in emergencies if e["status"] == "Resolved")
+
+    return render_template(
+        "authority/dashboard.html",
+        emergencies=emergencies,
+        total=total,
+        active=active,
+        resolved=resolved,
+        role=role,
+    )
+
+
+@app.route("/api/emergency_count")
+@login_required
+@authority_only
+def emergency_count():
+    role = session["role"]
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        if role == "admin":
+            cur.execute("SELECT COUNT(*) FROM emergencies")
+        else:
+            cur.execute(
+                "SELECT COUNT(*) FROM emergencies WHERE assigned_to=%s",
+                (ROLE_TO_ASSIGNMENT[role],),
+            )
+        count = cur.fetchone()[0]
+    finally:
+        conn.close()
+
+    return jsonify({"count": count})
+
+
+@app.route("/update_status/<int:emergency_id>/<action>")
+@login_required
+@authority_only
+def update_status(emergency_id, action):
+    role = session["role"]
+    admin_actions = {
+        "AssignPolice": ("Dispatched", "Police"),
+        "AssignMedical": ("Dispatched", "Medical"),
+        "AssignFire": ("Dispatched", "Fire"),
+    }
+    responder_actions = {"Acknowledged": "Acknowledged", "Resolved": "Resolved"}
 
     conn = get_db_connection()
-    cur = conn.cursor()
-
-    cur.execute("SELECT * FROM emergencies ORDER BY id DESC")
-    emergencies = cur.fetchall()
-
-    cur.close()
-    conn.close()
-
-    return render_template("authority/dashboard.html", emergencies=emergencies)
-
-
-@app.route("/acknowledge/<int:id>")
-def acknowledge(id):
-
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    cur.execute("UPDATE emergencies SET status='Acknowledged' WHERE id=%s",(id,))
-    conn.commit()
-
-    cur.close()
-    conn.close()
+    try:
+        cur = conn.cursor()
+        if action in admin_actions and role == "admin":
+            status, assigned_to = admin_actions[action]
+            cur.execute(
+                """
+                UPDATE emergencies
+                SET status=%s, assigned_to=%s
+                WHERE id=%s
+                """,
+                (status, assigned_to, emergency_id),
+            )
+        elif action in responder_actions:
+            # responders can only change incidents assigned to them
+            if role == "admin":
+                cur.execute(
+                    "UPDATE emergencies SET status=%s WHERE id=%s",
+                    (responder_actions[action], emergency_id),
+                )
+            else:
+                cur.execute(
+                    """
+                    UPDATE emergencies
+                    SET status=%s
+                    WHERE id=%s AND assigned_to=%s
+                    """,
+                    (responder_actions[action], emergency_id, ROLE_TO_ASSIGNMENT[role]),
+                )
+        conn.commit()
+    finally:
+        conn.close()
 
     return redirect("/authority/dashboard")
 
 
-@app.route("/resolve/<int:id>")
-def resolve(id):
-
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    cur.execute("UPDATE emergencies SET status='Resolved' WHERE id=%s",(id,))
-    conn.commit()
-
-    cur.close()
-    conn.close()
-
-    return redirect("/authority/dashboard")
+init_db()
 
 
 if __name__ == "__main__":
-    app.run()
+    app.run(debug=True)
