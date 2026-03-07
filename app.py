@@ -51,26 +51,26 @@ def home():
 # SOS API
 # -----------------------
 
-@app.route("/sos", methods=["POST","GET"])
+@app.route("/sos", methods=["POST"])
 def sos():
 
-    data = request.json
+    data = request.get_json()
 
-    emergency_type = data["type"]
-    lat = data["latitude"]
-    lon = data["longitude"]
+    emergency_type = data.get("type")
+    latitude = data.get("latitude")
+    longitude = data.get("longitude")
 
     conn = get_db()
 
     conn.execute(
         "INSERT INTO emergencies(type, latitude, longitude) VALUES (?, ?, ?)",
-        (emergency_type, lat, lon)
+        (emergency_type, latitude, longitude)
     )
 
     conn.commit()
     conn.close()
 
-    return jsonify({"status": "success"})
+    return {"status": "success"}
 
 
 # -----------------------
