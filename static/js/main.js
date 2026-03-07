@@ -1,27 +1,20 @@
-document.addEventListener("DOMContentLoaded", function () {
+document.addEventListener("DOMContentLoaded", () => {
 
-const sosButton = document.getElementById("sos-btn");
+const sosBtn = document.getElementById("sos-btn");
 
-if (!sosButton) {
-console.log("SOS button not found");
-return;
-}
-
-sosButton.addEventListener("click", function (e) {
-
-e.preventDefault();
+sosBtn.addEventListener("click", () => {
 
 if (!navigator.geolocation) {
-alert("Geolocation is not supported by your browser");
+alert("Location not supported");
 return;
 }
 
-navigator.geolocation.getCurrentPosition(function (position) {
+navigator.geolocation.getCurrentPosition((position) => {
 
-let latitude = position.coords.latitude;
-let longitude = position.coords.longitude;
+const lat = position.coords.latitude;
+const lon = position.coords.longitude;
 
-let type = document.getElementById("emergency-type").value;
+const type = document.getElementById("emergency-type").value;
 
 fetch("/sos", {
 method: "POST",
@@ -30,19 +23,18 @@ headers: {
 },
 body: JSON.stringify({
 type: type,
-latitude: latitude,
-longitude: longitude
+latitude: lat,
+longitude: lon
 })
 })
-.then(response => response.json())
+.then(res => res.json())
 .then(data => {
 
-alert("🚨 SOS Sent Successfully! Help is on the way.");
+alert("🚨 SOS Sent Successfully");
 
 })
-.catch(error => {
+.catch(err => {
 
-console.log(error);
 alert("⚠ Failed to send SOS");
 
 });
