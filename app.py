@@ -1,113 +1,114 @@
-from flask import Flask, render_template, request, jsonify
-import sqlite3
+from flask import Flask, render_template, request, jsonify, redirect
 import os
+import psycopg2
 
-app = Flask(__name__)
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
-DATABASE = "emergency.db"
+if not DATABASE_URL:
+    DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/emergency"
 
-
-# -----------------------------
-# DATABASE CONNECTION
-# -----------------------------
-
-def get_db():
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
+def get_db_connection():
+    conn = psycopg2.connect(DATABASE_URL)
     return conn
 
-
+# create table automatically
 def init_db():
-    conn = sqlite3.connect(DATABASE)
-
-    conn.execute("""
-    CREATE TABLE IF NOT EXISTS emergencies (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        type TEXT,
-        latitude REAL,
-        longitude REAL,
-        status TEXT DEFAULT 'Pending'
-    )
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS emergencies (
+            id SERIAL PRIMARY KEY,
+            type VARCHAR(50),
+            latitude VARCHAR(50),
+            longitude VARCHAR(50),
+            status VARCHAR(50),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
     """)
-
     conn.commit()
+    cur.close()
     conn.close()
 
-
-# create table when server starts
 init_db()
 
-
-# -----------------------------
-# HOME PAGE
-# -----------------------------
 
 @app.route("/")
 def home():
     return render_template("citizen/home.html")
 
 
-# -----------------------------
-# SOS API
-# -----------------------------
+@app.route("/send_sos", methods=["POST"])
+def send_sos():
 
-@app.route("/sos", methods=["POST"])
-def sos():
-
-    data = request.get_json()
-
+    data = request.json
     emergency_type = data.get("type")
-    latitude = data.get("latitude")
-    longitude = data.get("longitude")
+    lat = data.get("lat")
+    lon = data.get("lon")
 
     try:
+        conn = get_db_connection()
+        cur = conn.cursor()
 
-        conn = get_db()
-
-        conn.execute(
-            "INSERT INTO emergencies(type, latitude, longitude) VALUES (?, ?, ?)",
-            (emergency_type, latitude, longitude)
+        cur.execute(
+            "INSERT INTO emergencies (type, latitude, longitude, status) VALUES (%s,%s,%s,%s)",
+            (emergency_type, lat, lon, "Pending")
         )
 
         conn.commit()
+        cur.close()
         conn.close()
 
         return jsonify({"success": True})
 
     except Exception as e:
-
-        print("ERROR:", e)
-
+        print(e)
         return jsonify({"success": False})
 
-
-# -----------------------------
-# AUTHORITY DASHBOARD
-# -----------------------------
 
 @app.route("/authority/dashboard")
 def authority_dashboard():
 
-    conn = get_db()
+    conn = get_db_connection()
+    cur = conn.cursor()
 
-    emergencies = conn.execute(
-        "SELECT * FROM emergencies ORDER BY id DESC"
-    ).fetchall()
+    cur.execute("SELECT * FROM emergencies ORDER BY id DESC")
+    emergencies = cur.fetchall()
 
+    cur.close()
     conn.close()
 
-    return render_template(
-        "authority/dashboard.html",
-        emergencies=emergencies
-    )
+    return render_template("authority/dashboard.html", emergencies=emergencies)
 
 
-# -----------------------------
-# RUN SERVER
-# -----------------------------
+@app.route("/acknowledge/<int:id>")
+def acknowledge(id):
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.execute("UPDATE emergencies SET status='Acknowledged' WHERE id=%s",(id,))
+    conn.commit()
+
+    cur.close()
+    conn.close()
+
+    return redirect("/authority/dashboard")
+
+
+@app.route("/resolve/<int:id>")
+def resolve(id):
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.execute("UPDATE emergencies SET status='Resolved' WHERE id=%s",(id,))
+    conn.commit()
+
+    cur.close()
+    conn.close()
+
+    return redirect("/authority/dashboard")
+
 
 if __name__ == "__main__":
-
-    port = int(os.environ.get("PORT", 10000))
-
-    app.run(host="0.0.0.0", port=port)
+    app.run()
