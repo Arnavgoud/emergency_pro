@@ -342,3 +342,19 @@ def update_status(emergency_id, action):
                 )
             else:
                 cur.execute(
+                    """
+                    UPDATE emergencies
+                    SET status=%s
+                    WHERE id=%s AND assigned_to=%s
+                    """,
+                    (responder_actions[action], emergency_id, ROLE_TO_ASSIGNMENT[role]),
+                )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return redirect("/authority/dashboard")
+
+
+if __name__ == "__main__":
+    app.run(debug=False)
