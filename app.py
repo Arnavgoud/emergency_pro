@@ -13,7 +13,28 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "change-this-in-production")
 logging.basicConfig(level=logging.INFO)
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
+def resolve_database_url():
+    url = (
+        os.environ.get("DATABASE_URL")
+        or os.environ.get("DATABASE_PUBLIC_URL")
+        or os.environ.get("POSTGRES_URL")
+    )
+    if url:
+        return url
+
+    pghost = os.environ.get("PGHOST")
+    pgport = os.environ.get("PGPORT")
+    pgdatabase = os.environ.get("PGDATABASE")
+    pguser = os.environ.get("PGUSER")
+    pgpassword = os.environ.get("PGPASSWORD")
+    if all([pghost, pgport, pgdatabase, pguser, pgpassword]):
+        return (
+            f"postgresql://{pguser}:{pgpassword}@{pghost}:{pgport}/{pgdatabase}"
+        )
+    return None
+
+
+DATABASE_URL = resolve_database_url()
 
 VALID_SOS_TYPES = {"crime", "medical", "fire"}
 ROLE_TO_ASSIGNMENT = {"police": "Police", "medical": "Medical", "fire": "Fire"}
