@@ -179,6 +179,11 @@ def home():
     return render_template("citizen/home.html")
 
 
+@app.route("/login")
+def login_alias():
+    return redirect("/authority/login")
+
+
 @app.route("/send_sos", methods=["POST"])
 def send_sos():
     try:
@@ -213,8 +218,8 @@ def send_sos():
         )
         conn.commit()
         return jsonify({"success": True, "assigned_to": assigned_to})
-    except Exception:
-        return jsonify({"success": False, "error": "Database error"}), 500
+    except Exception as exc:
+        return jsonify({"success": False, "error": f"Database error: {exc}"}), 500
     finally:
         if "conn" in locals():
             conn.close()
@@ -223,13 +228,27 @@ def send_sos():
 @app.route("/authority/login", methods=["GET", "POST"])
 def authority_login():
     if request.method == "GET":
-        return render_template("login.html")
+        return render_template(
+            "login.html",
+            demo_credentials=[
+                ("admin", "admin123"),
+                ("police1", "police123"),
+                ("medic1", "medical123"),
+                ("fire1", "fire123"),
+            ],
+        )
     try:
         ensure_db_initialized()
     except Exception:
         return render_template(
             "login.html",
             error="Database is temporarily unavailable. Please try again.",
+            demo_credentials=[
+                ("admin", "admin123"),
+                ("police1", "police123"),
+                ("medic1", "medical123"),
+                ("fire1", "fire123"),
+            ],
         ), 503
 
     username = (request.form.get("username") or "").strip()
@@ -251,7 +270,16 @@ def authority_login():
         session["role"] = user["role"]
         return redirect("/authority/dashboard")
 
-    return render_template("login.html", error="Invalid credentials"), 401
+    return render_template(
+        "login.html",
+        error="Invalid credentials",
+        demo_credentials=[
+            ("admin", "admin123"),
+            ("police1", "police123"),
+            ("medic1", "medical123"),
+            ("fire1", "fire123"),
+        ],
+    ), 401
 
 
 @app.route("/logout")
