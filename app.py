@@ -68,6 +68,22 @@ def init_db():
         cur.execute(
             "ALTER TABLE emergencies ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;"
         )
+        # Safe conversion for older varchar coordinates to numeric.
+        # Invalid values are normalized to 0 to prevent startup failure.
+        cur.execute(
+            """
+            UPDATE emergencies
+            SET latitude = '0'
+            WHERE NOT (latitude::text ~ '^-?[0-9]+(\\.[0-9]+)?$');
+            """
+        )
+        cur.execute(
+            """
+            UPDATE emergencies
+            SET longitude = '0'
+            WHERE NOT (longitude::text ~ '^-?[0-9]+(\\.[0-9]+)?$');
+            """
+        )
         cur.execute(
             "ALTER TABLE emergencies ALTER COLUMN latitude TYPE DOUBLE PRECISION USING latitude::DOUBLE PRECISION;"
         )
@@ -326,19 +342,3 @@ def update_status(emergency_id, action):
                 )
             else:
                 cur.execute(
-                    """
-                    UPDATE emergencies
-                    SET status=%s
-                    WHERE id=%s AND assigned_to=%s
-                    """,
-                    (responder_actions[action], emergency_id, ROLE_TO_ASSIGNMENT[role]),
-                )
-        conn.commit()
-    finally:
-        conn.close()
-
-    return redirect("/authority/dashboard")
-
-
-if __name__ == "__main__":
-    app.run(debug=False)
