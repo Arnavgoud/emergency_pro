@@ -14,10 +14,6 @@ app.secret_key = os.environ.get("SECRET_KEY", "change-this-in-production")
 logging.basicConfig(level=logging.INFO)
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
-if not DATABASE_URL:
-    raise RuntimeError(
-        "DATABASE_URL is missing. Set it in Railway Variables and redeploy."
-    )
 
 VALID_SOS_TYPES = {"crime", "medical", "fire"}
 ROLE_TO_ASSIGNMENT = {"police": "Police", "medical": "Medical", "fire": "Fire"}
@@ -29,6 +25,8 @@ DB_RETRY_INTERVAL_SECONDS = 20
 
 
 def get_db_connection():
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL is missing in service variables.")
     return psycopg.connect(DATABASE_URL)
 
 
