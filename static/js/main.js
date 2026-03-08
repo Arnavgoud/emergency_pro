@@ -1,14 +1,21 @@
 function sendSOS() {
-
-    const type = document.querySelector("select").value;
+    const type = document.getElementById("emergency-type").value;
+    const button = document.querySelector(".sos-btn");
+    if (button) {
+        button.disabled = true;
+        button.textContent = "Sending...";
+    }
 
     if (!navigator.geolocation) {
         alert("Location not supported");
+        if (button) {
+            button.disabled = false;
+            button.textContent = "SOS";
+        }
         return;
     }
 
-    navigator.geolocation.getCurrentPosition(function(position){
-
+    navigator.geolocation.getCurrentPosition(function (position) {
         const lat = position.coords.latitude;
         const lon = position.coords.longitude;
 
@@ -23,20 +30,36 @@ function sendSOS() {
                 lon: lon
             })
         })
-        .then(response => response.json())
-        .then(data => {
-
-            if(data.success){
-                alert("🚨 SOS Sent Successfully");
-            }else{
-                alert("❌ Failed to send SOS");
-            }
-
-        })
-        .catch(err => {
-            console.error(err);
-            alert("Server error");
-        });
-
+            .then((response) => response.json())
+            .then((data) => {
+                if (data.success) {
+                    const team = data.assigned_to ? ` and routed to ${data.assigned_to}` : "";
+                    alert(`SOS sent successfully${team}.`);
+                } else {
+                    alert(data.error || "Failed to send SOS");
+                }
+                if (button) {
+                    button.disabled = false;
+                    button.textContent = "SOS";
+                }
+            })
+            .catch((err) => {
+                console.error(err);
+                alert("Server error");
+                if (button) {
+                    button.disabled = false;
+                    button.textContent = "SOS";
+                }
+            });
+    }, function () {
+        alert("Unable to get your location. Please enable GPS and try again.");
+        if (button) {
+            button.disabled = false;
+            button.textContent = "SOS";
+        }
+    }, {
+        enableHighAccuracy: false,
+        timeout: 6000,
+        maximumAge: 30000
     });
 }
