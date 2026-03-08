@@ -1,47 +1,56 @@
 <!DOCTYPE html>
 <html>
 <head>
-
 <title>Emergency SOS</title>
-
-<link rel="stylesheet"
-href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
-
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+<style>
+body {
+    min-height: 100vh;
+    background: linear-gradient(180deg, #f5f7fb 0%, #edf2f7 100%);
+}
+.sos-wrap {
+    max-width: 460px;
+}
+.sos-card {
+    border-radius: 16px;
+    border: 1px solid #e6eaf0;
+}
+.sos-btn {
+    width: 180px;
+    height: 180px;
+    border-radius: 50%;
+    font-size: 36px;
+    font-weight: 700;
+    background: radial-gradient(circle at 35% 30%, #ff7f7f, #d62828);
+    border: none;
+    color: #fff;
+    box-shadow: 0 14px 30px rgba(214, 40, 40, 0.35);
+}
+.sos-btn:active {
+    transform: scale(0.98);
+}
+</style>
 </head>
 
-<body class="bg-light">
+<body class="d-flex align-items-center">
+<div class="container d-flex justify-content-center">
+<div class="sos-wrap w-100">
+    <div class="sos-card bg-white shadow-sm p-4 text-center">
+        <h1 class="h3 fw-bold mb-2 text-danger">Emergency SOS</h1>
+        <p class="text-secondary mb-4">Tap once to send your location to emergency response.</p>
 
-<div class="container text-center mt-5">
+        <select id="emergency-type" class="form-select mb-4">
+            <option value="crime">Crime</option>
+            <option value="medical">Medical</option>
+            <option value="fire">Fire</option>
+        </select>
 
-<h1 class="text-danger">Emergency SOS</h1>
-
-<p>Press immediately in case of emergency</p>
-
-<select id="emergency-type"
-class="form-select w-50 mx-auto mb-4">
-
-<option value="crime">Crime</option>
-<option value="medical">Medical</option>
-<option value="fire">Fire</option>
-
-</select>
-
-<div class="d-flex justify-content-center">
-
-<button onclick="sendSOS()" class="btn btn-danger rounded-circle shadow"
-        style="width:150px;height:150px;font-size:28px;">
-    SOS
-</button>
-
+        <button onclick="sendSOS()" class="sos-btn">SOS</button>
+    </div>
 </div>
-
-<div class="mt-4">
-    <a href="/authority/login" class="btn btn-outline-dark">Authority Login</a>
 </div>
-
-</div>
-
 <script src="/static/js/main.js"></script>
-
 </body>
 </html>
