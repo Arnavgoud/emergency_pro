@@ -122,13 +122,15 @@ def init_db():
 def init_db_with_retry():
     attempts = 8
     delay_seconds = 2
+    last_error = None
     for attempt in range(1, attempts + 1):
         try:
             init_db()
             return
-        except Exception:
+        except Exception as exc:
+            last_error = exc
             if attempt == attempts:
-                raise
+                raise RuntimeError(f"Database initialization failed: {last_error}") from last_error
             time.sleep(delay_seconds)
 
 
@@ -173,13 +175,16 @@ def authority_only(view_fn):
 
 @app.route("/")
 def home():
-    ensure_db_initialized()
+    # Keep citizen landing page available even if DB is temporarily unavailable.
     return render_template("citizen/home.html")
 
 
 @app.route("/send_sos", methods=["POST"])
 def send_sos():
-    ensure_db_initialized()
+    try:
+        ensure_db_initialized()
+    except Exception:
+        return jsonify({"success": False, "error": "Service temporarily unavailable"}), 503
     data = request.get_json(silent=True) or {}
     emergency_type = (data.get("type") or "").strip().lower()
     lat = data.get("lat")
@@ -217,9 +222,15 @@ def send_sos():
 
 @app.route("/authority/login", methods=["GET", "POST"])
 def authority_login():
-    ensure_db_initialized()
     if request.method == "GET":
         return render_template("login.html")
+    try:
+        ensure_db_initialized()
+    except Exception:
+        return render_template(
+            "login.html",
+            error="Database is temporarily unavailable. Please try again.",
+        ), 503
 
     username = (request.form.get("username") or "").strip()
     password = request.form.get("password") or ""
@@ -253,7 +264,13 @@ def logout():
 @login_required
 @authority_only
 def authority_dashboard():
-    ensure_db_initialized()
+    try:
+        ensure_db_initialized()
+    except Exception:
+        return render_template(
+            "login.html",
+            error="Database is temporarily unavailable. Please try again.",
+        ), 503
     role = session["role"]
     conn = get_db_connection()
     try:
@@ -288,7 +305,10 @@ def authority_dashboard():
 @login_required
 @authority_only
 def emergency_count():
-    ensure_db_initialized()
+    try:
+        ensure_db_initialized()
+    except Exception:
+        return jsonify({"count": 0}), 503
     role = session["role"]
     conn = get_db_connection()
     try:
@@ -311,7 +331,10 @@ def emergency_count():
 @login_required
 @authority_only
 def update_status(emergency_id, action):
-    ensure_db_initialized()
+    try:
+        ensure_db_initialized()
+    except Exception:
+        return redirect("/authority/dashboard")
     role = session["role"]
     admin_actions = {
         "AssignPolice": ("Dispatched", "Police"),
