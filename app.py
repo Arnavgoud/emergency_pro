@@ -203,8 +203,13 @@ def login_alias():
 def send_sos():
     try:
         ensure_db_initialized()
-    except Exception:
-        return jsonify({"success": False, "error": "Service is temporarily unavailable"}), 503
+    except Exception as exc:
+        return jsonify(
+            {
+                "success": False,
+                "error": f"Service is temporarily unavailable: {exc}",
+            }
+        ), 503
     data = request.get_json(silent=True) or {}
     emergency_type = (data.get("type") or "").strip().lower()
     lat = data.get("lat")
@@ -249,7 +254,7 @@ def authority_login():
     except Exception:
         return render_template(
             "login.html",
-            error="Database is temporarily unavailable. Please try again.",
+            error=f"Database is temporarily unavailable. Please try again. ({DB_INIT_ERROR})",
         ), 503
 
     username = (request.form.get("username") or "").strip()
