@@ -1,4 +1,5 @@
 from functools import wraps
+import logging
 import os
 import time
 
@@ -10,6 +11,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "change-this-in-production")
+logging.basicConfig(level=logging.INFO)
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
@@ -21,6 +23,9 @@ VALID_SOS_TYPES = {"crime", "medical", "fire"}
 ROLE_TO_ASSIGNMENT = {"police": "Police", "medical": "Medical", "fire": "Fire"}
 TYPE_TO_ASSIGNMENT = {"crime": "Police", "medical": "Medical", "fire": "Fire"}
 DB_INIT_DONE = False
+DB_INIT_ERROR = None
+DB_INIT_LAST_TRY = 0
+DB_RETRY_INTERVAL_SECONDS = 20
 
 
 def get_db_connection():
@@ -120,8 +125,8 @@ def init_db():
 
 
 def init_db_with_retry():
-    attempts = 8
-    delay_seconds = 2
+    attempts = 3
+    delay_seconds = 1
     last_error = None
     for attempt in range(1, attempts + 1):
         try:
@@ -135,11 +140,21 @@ def init_db_with_retry():
 
 
 def ensure_db_initialized():
-    global DB_INIT_DONE
+    global DB_INIT_DONE, DB_INIT_ERROR, DB_INIT_LAST_TRY
     if DB_INIT_DONE:
         return
-    init_db_with_retry()
-    DB_INIT_DONE = True
+    now = time.time()
+    if DB_INIT_ERROR and (now - DB_INIT_LAST_TRY) < DB_RETRY_INTERVAL_SECONDS:
+        raise RuntimeError(DB_INIT_ERROR)
+    try:
+        init_db_with_retry()
+        DB_INIT_DONE = True
+        DB_INIT_ERROR = None
+    except Exception as exc:
+        DB_INIT_LAST_TRY = now
+        DB_INIT_ERROR = str(exc)
+        app.logger.exception("DB initialization failed: %s", exc)
+        raise
 
 
 def _seed_user(cur, username, raw_password, role):
@@ -189,7 +204,7 @@ def send_sos():
     try:
         ensure_db_initialized()
     except Exception:
-        return jsonify({"success": False, "error": "Service temporarily unavailable"}), 503
+        return jsonify({"success": False, "error": "Service is temporarily unavailable"}), 503
     data = request.get_json(silent=True) or {}
     emergency_type = (data.get("type") or "").strip().lower()
     lat = data.get("lat")
@@ -208,7 +223,7 @@ def send_sos():
 
     try:
         conn = get_db_connection()
-        cur = conn.cursor()
+        cur = get_cursor(conn)
         cur.execute(
             """
             INSERT INTO emergencies (type, latitude, longitude, status, assigned_to)
@@ -228,27 +243,13 @@ def send_sos():
 @app.route("/authority/login", methods=["GET", "POST"])
 def authority_login():
     if request.method == "GET":
-        return render_template(
-            "login.html",
-            demo_credentials=[
-                ("admin", "admin123"),
-                ("police1", "police123"),
-                ("medic1", "medical123"),
-                ("fire1", "fire123"),
-            ],
-        )
+        return render_template("login.html")
     try:
         ensure_db_initialized()
     except Exception:
         return render_template(
             "login.html",
             error="Database is temporarily unavailable. Please try again.",
-            demo_credentials=[
-                ("admin", "admin123"),
-                ("police1", "police123"),
-                ("medic1", "medical123"),
-                ("fire1", "fire123"),
-            ],
         ), 503
 
     username = (request.form.get("username") or "").strip()
@@ -270,16 +271,7 @@ def authority_login():
         session["role"] = user["role"]
         return redirect("/authority/dashboard")
 
-    return render_template(
-        "login.html",
-        error="Invalid credentials",
-        demo_credentials=[
-            ("admin", "admin123"),
-            ("police1", "police123"),
-            ("medic1", "medical123"),
-            ("fire1", "fire123"),
-        ],
-    ), 401
+    return render_template("login.html", error="Invalid credentials"), 401
 
 
 @app.route("/logout")
