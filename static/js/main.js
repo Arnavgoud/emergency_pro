@@ -33,8 +33,7 @@ function sendSOS() {
             .then((response) => response.json())
             .then((data) => {
                 if (data.success) {
-                    const team = data.assigned_to ? ` and routed to ${data.assigned_to}` : "";
-                    alert(`SOS sent successfully${team}.`);
+                    alert("SOS sent successfully. Awaiting admin assignment.");
                 } else {
                     alert(data.error || "Failed to send SOS");
                 }
