@@ -38,7 +38,6 @@ DATABASE_URL = resolve_database_url()
 
 VALID_SOS_TYPES = {"crime", "medical", "fire"}
 ROLE_TO_ASSIGNMENT = {"police": "Police", "medical": "Medical", "fire": "Fire"}
-TYPE_TO_ASSIGNMENT = {"crime": "Police", "medical": "Medical", "fire": "Fire"}
 DB_INIT_DONE = False
 DB_INIT_ERROR = None
 DB_INIT_LAST_TRY = 0
@@ -79,7 +78,7 @@ def init_db():
                 type VARCHAR(50) NOT NULL,
                 latitude DOUBLE PRECISION NOT NULL,
                 longitude DOUBLE PRECISION NOT NULL,
-                status VARCHAR(50) NOT NULL DEFAULT 'Dispatched',
+                status VARCHAR(50) NOT NULL DEFAULT 'Pending',
                 assigned_to VARCHAR(50) NOT NULL DEFAULT 'Not Assigned',
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -134,10 +133,7 @@ def init_db():
             EXECUTE FUNCTION update_emergency_timestamp();
             """
         )
-        _seed_user(cur, "admin", "admin123", "admin")
-        _seed_user(cur, "police1", "police123", "police")
-        _seed_user(cur, "medic1", "medical123", "medical")
-        _seed_user(cur, "fire1", "fire123", "fire")
+        seed_default_users(cur)
         conn.commit()
     finally:
         conn.close()
@@ -186,6 +182,33 @@ def _seed_user(cur, username, raw_password, role):
     )
 
 
+def seed_default_users(cur):
+    _seed_user(
+        cur,
+        os.environ.get("AUTH_ADMIN_USER", "admin"),
+        os.environ.get("AUTH_ADMIN_PASSWORD", "admin123"),
+        "admin",
+    )
+    _seed_user(
+        cur,
+        os.environ.get("AUTH_POLICE_USER", "police1"),
+        os.environ.get("AUTH_POLICE_PASSWORD", "police123"),
+        "police",
+    )
+    _seed_user(
+        cur,
+        os.environ.get("AUTH_MEDICAL_USER", "medic1"),
+        os.environ.get("AUTH_MEDICAL_PASSWORD", "medical123"),
+        "medical",
+    )
+    _seed_user(
+        cur,
+        os.environ.get("AUTH_FIRE_USER", "fire1"),
+        os.environ.get("AUTH_FIRE_PASSWORD", "fire123"),
+        "fire",
+    )
+
+
 def login_required(view_fn):
     @wraps(view_fn)
     def wrapped(*args, **kwargs):
@@ -213,6 +236,19 @@ def home():
     return render_template("citizen/home.html")
 
 
+@app.route("/health")
+def health():
+    try:
+        conn = get_db_connection()
+        cur = get_cursor(conn)
+        cur.execute("SELECT 1")
+        cur.fetchone()
+        conn.close()
+        return jsonify({"status": "ok", "database": "connected"}), 200
+    except Exception:
+        return jsonify({"status": "degraded", "database": "unavailable"}), 503
+
+
 @app.route("/login")
 def login_alias():
     return redirect("/authority/login")
@@ -222,13 +258,8 @@ def login_alias():
 def send_sos():
     try:
         ensure_db_initialized()
-    except Exception as exc:
-        return jsonify(
-            {
-                "success": False,
-                "error": f"Service is temporarily unavailable: {exc}",
-            }
-        ), 503
+    except Exception:
+        return jsonify({"success": False, "error": "Service is temporarily unavailable"}), 503
     data = request.get_json(silent=True) or {}
     emergency_type = (data.get("type") or "").strip().lower()
     lat = data.get("lat")
@@ -243,8 +274,6 @@ def send_sos():
     except (TypeError, ValueError):
         return jsonify({"success": False, "error": "Invalid coordinates"}), 400
 
-    assigned_to = TYPE_TO_ASSIGNMENT[emergency_type]
-
     try:
         conn = get_db_connection()
         cur = get_cursor(conn)
@@ -253,12 +282,12 @@ def send_sos():
             INSERT INTO emergencies (type, latitude, longitude, status, assigned_to)
             VALUES (%s, %s, %s, %s, %s)
             """,
-            (emergency_type, lat, lon, "Dispatched", assigned_to),
+            (emergency_type, lat, lon, "Pending", "Not Assigned"),
         )
         conn.commit()
-        return jsonify({"success": True, "assigned_to": assigned_to})
-    except Exception as exc:
-        return jsonify({"success": False, "error": f"Database error: {exc}"}), 500
+        return jsonify({"success": True})
+    except Exception:
+        return jsonify({"success": False, "error": "Database error"}), 500
     finally:
         if "conn" in locals():
             conn.close()
@@ -273,7 +302,7 @@ def authority_login():
     except Exception:
         return render_template(
             "login.html",
-            error=f"Database is temporarily unavailable. Please try again. ({DB_INIT_ERROR})",
+            error="Database is temporarily unavailable. Please try again.",
         ), 503
 
     username = (request.form.get("username") or "").strip()
